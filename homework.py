@@ -1,5 +1,3 @@
-from pprint import pprint
-
 import requests
 import os
 import telegram
@@ -17,7 +15,7 @@ load_dotenv()
 
 PRACTICUM_TOKEN: str = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN: str = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID: int = os.getenv('TELEGRAM_CHAT_ID')
+TELEGRAM_CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID')
 
 RETRY_PERIOD: int = 600
 ENDPOINT: str = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
@@ -100,7 +98,7 @@ def check_response(response):
                             f' а ожидался list.')
     except KeyError as error:
         logger.error(f'Значение переменной {error} в ответе API не найдено.')
-        raise exc.MissingValueAPI(f'Значение переменной {key}'
+        raise exc.MissingValueAPI(f'Значение переменной {error}'
                                   f' в ответе API не найдено.')
 
 
