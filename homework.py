@@ -1,12 +1,15 @@
+from pprint import pprint
+
 import requests
 import os
 import telegram
 import time
+import logging
+import exceptions as exc
 
-from telegram.ext import Updater, CommandHandler
-from telegram import ReplyKeyboardMarkup
+
 from dotenv import load_dotenv
-from exceptions import MissingEnvironmentVariable, MissingValueAPI
+from logging.handlers import RotatingFileHandler
 from http import HTTPStatus
 
 load_dotenv()
@@ -27,83 +30,117 @@ HOMEWORK_VERDICTS: dict = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = RotatingFileHandler('homework_log.log', maxBytes=50000000,
+                              backupCount=5)
+logger.addHandler(handler)
+
 
 def check_tokens():
     """Проверка доступности переменных окружения"""
 
-    tokens = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
-    for token in tokens:
-        if token in os.environ:
-            continue
-        else:
-            raise MissingEnvironmentVariable(f'Переменная окружения {token}'
-                                             f' не найдена.')
+    if TELEGRAM_TOKEN is None or PRACTICUM_TOKEN is None or\
+            TELEGRAM_CHAT_ID is None:
+        logger.critical('Отсутсвуют переменные окружения!')
+        raise exc.MissingEnvironmentVariable(
+            'Отсутствуют переменные окружения!')
 
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram чат"""
-
-    bot.send_message(
-        chat_id=TELEGRAM_CHAT_ID,
-        text=message
-    )
+    try:
+        bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message
+        )
+        logging.debug(f'Сообщение <<<{message}>>> успешно отправлено.')
+    except Exception as error:
+        logger.error(f'Сбой при отправке сообщения: {error}')
 
 
 def get_api_answer(timestamp):
     """Делаем запрос к эндпоинту API-сервиса"""
 
-    response = requests.get(ENDPOINT, headers=HEADERS,
-                            params={'from_date': timestamp})
-    if response.status_code == HTTPStatus.OK:
-        return response.json()
+    try:
+        response = requests.get(ENDPOINT, headers=HEADERS,
+                                params={'from_date': timestamp})
+        response_json = response.json()
+        if response.status_code == HTTPStatus.OK:
+            logger.debug('Запрос от API успешно получен.')
+            logger.debug(f'Ответ API: {response_json}')
+            return response_json
+        else:
+            logger.error(f'Неверный ответ API: {response.status_code}.')
+            raise exc.InvalidStatusCodeAPI(f'Неверный ответ API:'
+                                           f' {response.status_code}')
+    except Exception:
+        if response.status_code != HTTPStatus.OK:
+            raise exc.InvalidStatusCodeAPI('Endpoint API недоступен.')
+        else:
+            raise exc.InvalidStatusCodeAPI('Сбой при запросе к Endpoint API')
 
 
 def check_response(response):
     """Проверка API на соответствие документации"""
 
-    keys_in_answer = ('current_date', 'homeworks')
-    keys_in_homeworks = ('date_updated', 'homework_name', 'id', 'lesson_name',
-                         'reviewer_comment', 'status')
-
-    for key in keys_in_answer:
-        if key in response:
-            if key == 'homeworks':
-                for key_homeworks in keys_in_homeworks:
-                    if key_homeworks in response['homeworks'][0]:
-                        continue
-                    else:
-                        raise MissingValueAPI(f'Значение переменной'
-                                              f' {key_homeworks} в ответе API'
-                                              f' не найдено.')
-        else:
-            raise MissingValueAPI(f'Значение переменной {key} в ответе API'
-                                  f'не найдено.')
+    try:
+        homework = response['homeworks']
+        current_date = response['current_date']
+        if type(homework) != list:
+            logger.error(f'Ответ API под ключом "homeworks" приходит не в'
+                         f' ожидаемом виде. Получен {type(homework)},'
+                         f' а ожидался list.')
+            raise TypeError(f'Ответ API под ключом "homeworks" приходит не в'
+                            f' ожидаемом виде. Получен {type(homework)},'
+                            f' а ожидался list.')
+    except KeyError as error:
+        logger.error(f'Значение переменной {error} в ответе API не найдено.')
+        raise exc.MissingValueAPI(f'Значение переменной {key}'
+                                  f' в ответе API не найдено.')
 
 
 def parse_status(homework):
     """Извлекает из информации о домашней работе статус этой работы"""
 
     if homework['status'] in HOMEWORK_VERDICTS:
-        return f'Изменился статус проверки работы ' \
-               f'"{homework["homework_name"]}".' \
-               f' {HOMEWORK_VERDICTS[homework["status"]]}'
+        if "homework_name" in homework:
+            return f'Изменился статус проверки работы ' \
+                   f'"{homework["homework_name"]}".' \
+                   f' {HOMEWORK_VERDICTS[homework["status"]]}'
+        else:
+            logger.error('Переменная <homework_name> отсутствует в ответе API')
+            raise exc.MissArgument('Переменная <homework_name> отсутствует'
+                                   ' в ответе API')
+    else:
+        logger.error(f'API возвращает незадокументированный аргумент'
+                     f' {homework["status"]}.')
+        raise exc.APIReturningUnknownArgument(f'API возвращает'
+                                              f' незадокументированный'
+                                              f' аргумент'
+                                              f' {homework["status"]}')
 
 
 def main():
     """Основная логика работы бота."""
 
+    logger.debug('--------------')
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
     # Проверяем переменные окружения
     check_tokens()
     # Устанавливаем время равное 0, чтобы получить все домашки
     timestamp = 0
-    time.sleep(0)
+
     while True:
         try:
-            updater = Updater(token=TELEGRAM_TOKEN)
+            logger.debug('Начало новой итерации')
+
             # Получаем ответ API приведённый к типу данных Python
             api_answer = get_api_answer(timestamp)
-
-            bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
             # Проверка API на соответствие документации
             check_response(api_answer)
@@ -117,16 +154,14 @@ def main():
                 send_message(bot, parse_status_answer)
                 STATUS_HOMEWORK = parse_status_answer
 
-            updater.start_polling(poll_interval=RETRY_PERIOD)
-            updater.idle()
-
-        except MissingValueAPI as error:
-            message = f'Значение переменной в ответе API не найдено: {error}'
-            send_message(bot, message)
+            time.sleep(RETRY_PERIOD)
 
         except Exception as error:
+            logger.critical(f'Сбой в работе программы: {error}')
             message = f'Сбой в работе программы: {error}'
             send_message(bot, message)
+            logger.debug('--------------')
+            time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
