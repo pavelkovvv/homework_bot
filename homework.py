@@ -40,8 +40,7 @@ logger.addHandler(handler)
 
 
 def check_tokens():
-    """Проверка доступности переменных окружения"""
-
+    """Проверка доступности переменных окружения."""
     if TELEGRAM_TOKEN is None or PRACTICUM_TOKEN is None or\
             TELEGRAM_CHAT_ID is None:
         logger.critical('Отсутсвуют переменные окружения!')
@@ -50,7 +49,7 @@ def check_tokens():
 
 
 def send_message(bot, message):
-    """Отправляет сообщение в Telegram чат"""
+    """Отправляет сообщение в Telegram чат."""
     try:
         bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
@@ -62,8 +61,7 @@ def send_message(bot, message):
 
 
 def get_api_answer(timestamp):
-    """Делаем запрос к эндпоинту API-сервиса"""
-
+    """Делаем запрос к эндпоинту API-сервиса."""
     try:
         response = requests.get(ENDPOINT, headers=HEADERS,
                                 params={'from_date': timestamp})
@@ -84,12 +82,11 @@ def get_api_answer(timestamp):
 
 
 def check_response(response):
-    """Проверка API на соответствие документации"""
-
+    """Проверка API на соответствие документации."""
     try:
         homework = response['homeworks']
-        current_date = response['current_date']
-        if type(homework) != list:
+        response['current_date']
+        if not isinstance(homework, list):
             logger.error(f'Ответ API под ключом "homeworks" приходит не в'
                          f' ожидаемом виде. Получен {type(homework)},'
                          f' а ожидался list.')
@@ -103,8 +100,7 @@ def check_response(response):
 
 
 def parse_status(homework):
-    """Извлекает из информации о домашней работе статус этой работы"""
-
+    """Извлекает из информации о домашней работе статус этой работы."""
     if homework['status'] in HOMEWORK_VERDICTS:
         if "homework_name" in homework:
             return f'Изменился статус проверки работы ' \
@@ -125,7 +121,6 @@ def parse_status(homework):
 
 def main():
     """Основная логика работы бота."""
-
     logger.debug('--------------')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     # Проверяем переменные окружения
