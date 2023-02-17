@@ -1,5 +1,3 @@
-from pprint import pprint
-
 import requests
 import os
 import telegram
@@ -8,13 +6,10 @@ import logging
 import datetime as dt
 import exceptions as ex
 
-
 from dotenv import load_dotenv
-from logging.handlers import RotatingFileHandler
 from http import HTTPStatus
 
 load_dotenv()
-
 
 PRACTICUM_TOKEN: str = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN: str = os.getenv('TELEGRAM_TOKEN')
@@ -65,7 +60,7 @@ def get_api_answer(timestamp):
         else:
             logging.error(f'Неверный ответ API: {response.status_code}.')
             raise ex.InvalidStatusCodeAPI(f'Неверный ответ API:'
-                                           f' {response.status_code}')
+                                          f' {response.status_code}')
     except Exception:
         pass
 
@@ -84,9 +79,8 @@ def check_response(response):
                         f' {type(response)},а ожидался dict.')
 
     if 'homeworks' not in response or 'current_date' not in response:
-        logging.error(f'Значение одной из переменной в ответе API не найдено.')
-        raise KeyError(f'Значение одной из переменной в ответе API не'
-                       f' найдено.')
+        logging.error('Значение одной из переменной в ответе API не найдено.')
+        raise KeyError('Значение одной из переменной в ответе API не найдено.')
 
     homework = response['homeworks']
     if not isinstance(homework, list):
@@ -101,9 +95,8 @@ def check_response(response):
 def parse_status(homework):
     """Извлекает из информации о домашней работе статус этой работы."""
     if 'status' not in homework or 'homework_name' not in homework:
-        logging.error(f'Значение одной из переменной в ответе API не найдено.')
-        raise KeyError(f'Значение одной из переменной в ответе API не'
-                       f' найдено.')
+        logging.error('Значение одной из переменной в ответе API не найдено.')
+        raise KeyError('Значение одной из переменной в ответе API не найдено.')
 
     if homework['status'] in HOMEWORK_VERDICTS:
         if "homework_name" in homework:
@@ -137,8 +130,8 @@ def main():
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
-    timestamp = int(time.mktime((dt.datetime.now() -
-                                 dt.timedelta(days=7)).timetuple()))
+    timestamp = int(time.mktime((dt.datetime.now()
+                                 - dt.timedelta(days=7)).timetuple()))
     while True:
         try:
             logging.debug('Начало новой итерации')
@@ -152,7 +145,7 @@ def main():
             # Извлекаем нужную информацию о последней домашке
             if len(api_answer['homeworks']) > 0:
                 parse_status_answer = parse_status(api_answer['homeworks'][0])
-                
+
             # Отправляем сообщение пользователю
             if STATUS_HOMEWORK != parse_status_answer:
                 send_message(bot, parse_status_answer)
