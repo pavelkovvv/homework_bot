@@ -1,9 +1,12 @@
+from pprint import pprint
+
 import requests
 import os
 import telegram
 import time
 import logging
-import exceptions as exc
+import datetime as dt
+import exceptions as ex
 
 
 from dotenv import load_dotenv
@@ -20,7 +23,6 @@ TELEGRAM_CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID')
 RETRY_PERIOD: int = 600
 ENDPOINT: str = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS: dict = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-STATUS_HOMEWORK = None
 
 HOMEWORK_VERDICTS: dict = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
@@ -28,24 +30,14 @@ HOMEWORK_VERDICTS: dict = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-handler = RotatingFileHandler('homework_log.log', maxBytes=50000000,
-                              backupCount=5)
-logger.addHandler(handler)
-
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    if TELEGRAM_TOKEN is None or PRACTICUM_TOKEN is None or\
-            TELEGRAM_CHAT_ID is None:
-        logger.critical('Отсутсвуют переменные окружения!')
-        raise exc.MissingEnvironmentVariable(
-            'Отсутствуют переменные окружения!')
+    tokens: tuple = (TELEGRAM_TOKEN, PRACTICUM_TOKEN, TELEGRAM_CHAT_ID)
+    if not all(tokens):
+        logging.critical('Отсутсвуют переменные окружения!')
+        return False
+    return True
 
 
 def send_message(bot, message):
@@ -57,7 +49,7 @@ def send_message(bot, message):
         )
         logging.debug(f'Сообщение <<<{message}>>> успешно отправлено.')
     except Exception as error:
-        logger.error(f'Сбой при отправке сообщения: {error}')
+        logging.error(f'Сбой при отправке сообщения: {error}')
 
 
 def get_api_answer(timestamp):
@@ -67,70 +59,89 @@ def get_api_answer(timestamp):
                                 params={'from_date': timestamp})
         response_json = response.json()
         if response.status_code == HTTPStatus.OK:
-            logger.debug('Запрос от API успешно получен.')
-            logger.debug(f'Ответ API: {response_json}')
+            logging.debug('Запрос от API успешно получен.')
+            logging.debug(f'Ответ API: {response_json}')
             return response_json
         else:
-            logger.error(f'Неверный ответ API: {response.status_code}.')
-            raise exc.InvalidStatusCodeAPI(f'Неверный ответ API:'
+            logging.error(f'Неверный ответ API: {response.status_code}.')
+            raise ex.InvalidStatusCodeAPI(f'Неверный ответ API:'
                                            f' {response.status_code}')
     except Exception:
-        if response.status_code != HTTPStatus.OK:
-            raise exc.InvalidStatusCodeAPI('Endpoint API недоступен.')
-        else:
-            raise exc.InvalidStatusCodeAPI('Сбой при запросе к Endpoint API')
+        pass
+
+    if response.status_code != HTTPStatus.OK:
+        raise ex.InvalidStatusCodeAPI('Endpoint API недоступен.')
+    else:
+        raise ex.InvalidStatusCodeAPI('Сбой при запросе к Endpoint API')
 
 
 def check_response(response):
     """Проверка API на соответствие документации."""
-    try:
-        homework = response['homeworks']
-        response['current_date']
-        if not isinstance(homework, list):
-            logger.error(f'Ответ API под ключом "homeworks" приходит не в'
-                         f' ожидаемом виде. Получен {type(homework)},'
-                         f' а ожидался list.')
-            raise TypeError(f'Ответ API под ключом "homeworks" приходит не в'
-                            f' ожидаемом виде. Получен {type(homework)},'
-                            f' а ожидался list.')
-    except KeyError as error:
-        logger.error(f'Значение переменной {error} в ответе API не найдено.')
-        raise exc.MissingValueAPI(f'Значение переменной {error}'
-                                  f' в ответе API не найдено.')
+    if not isinstance(response, dict):
+        logging.error(f'Ответ API  приходит не в ожидаемом виде. Получен'
+                      f' {type(response)}, а ожидался dict.')
+        raise TypeError(f'Ответ API  приходит не в ожидаемом виде. Получен'
+                        f' {type(response)},а ожидался dict.')
+
+    if 'homeworks' not in response or 'current_date' not in response:
+        logging.error(f'Значение одной из переменной в ответе API не найдено.')
+        raise KeyError(f'Значение одной из переменной в ответе API не'
+                       f' найдено.')
+
+    homework = response['homeworks']
+    if not isinstance(homework, list):
+        logging.error(f'Ответ API под ключом "homeworks" приходит не в'
+                      f' ожидаемом виде. Получен {type(homework)},'
+                      f' а ожидался list.')
+        raise TypeError(f'Ответ API под ключом "homeworks" приходит не в'
+                        f' ожидаемом виде. Получен {type(homework)},'
+                        f' а ожидался list.')
 
 
 def parse_status(homework):
     """Извлекает из информации о домашней работе статус этой работы."""
+    if 'status' not in homework or 'homework_name' not in homework:
+        logging.error(f'Значение одной из переменной в ответе API не найдено.')
+        raise KeyError(f'Значение одной из переменной в ответе API не'
+                       f' найдено.')
+
     if homework['status'] in HOMEWORK_VERDICTS:
         if "homework_name" in homework:
-            return f'Изменился статус проверки работы ' \
-                   f'"{homework["homework_name"]}".' \
-                   f' {HOMEWORK_VERDICTS[homework["status"]]}'
+            return ('Изменился статус проверки работы'
+                    f' "{homework["homework_name"]}".'
+                    f' {HOMEWORK_VERDICTS[homework["status"]]}')
         else:
-            logger.error('Переменная <homework_name> отсутствует в ответе API')
-            raise exc.MissArgument('Переменная <homework_name> отсутствует'
-                                   ' в ответе API')
+            logging.error('Переменная <homework_name> отсутствует в ответе'
+                          ' API')
+            raise ex.MissArgument('Переменная <homework_name> отсутствует'
+                                  ' в ответе API')
     else:
-        logger.error(f'API возвращает незадокументированный аргумент'
-                     f' {homework["status"]}.')
-        raise exc.APIReturningUnknownArgument(f'API возвращает'
-                                              f' незадокументированный'
-                                              f' аргумент'
-                                              f' {homework["status"]}')
+        logging.error('API возвращает незадокументированный аргумент'
+                      f' {homework["status"]}.')
+        raise ex.APIReturningUnknownArgument(f'API возвращает'
+                                             ' незадокументированный'
+                                             ' аргумент'
+                                             f' {homework["status"]}')
 
 
 def main():
     """Основная логика работы бота."""
-    logger.debug('--------------')
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    # Проверяем переменные окружения
-    check_tokens()
-    # Устанавливаем время равное 0, чтобы получить все домашки
-    timestamp = 0
+    STATUS_HOMEWORK = None
 
+    logging.debug('--------------')
+
+    # Проверяем переменные окружения
+    if not check_tokens():
+        raise ex.MissingEnvironmentVariable(
+            'Отсутствуют переменные окружения!')
+
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+
+    timestamp = int(time.mktime((dt.datetime.now() -
+                                 dt.timedelta(days=7)).timetuple()))
     while True:
         try:
-            logger.debug('Начало новой итерации')
+            logging.debug('Начало новой итерации')
 
             # Получаем ответ API приведённый к типу данных Python
             api_answer = get_api_answer(timestamp)
@@ -139,23 +150,38 @@ def main():
             check_response(api_answer)
 
             # Извлекаем нужную информацию о последней домашке
-            parse_status_answer = parse_status(api_answer['homeworks'][0])
-
+            if len(api_answer['homeworks']) > 0:
+                parse_status_answer = parse_status(api_answer['homeworks'][0])
+                
             # Отправляем сообщение пользователю
-            global STATUS_HOMEWORK
             if STATUS_HOMEWORK != parse_status_answer:
                 send_message(bot, parse_status_answer)
                 STATUS_HOMEWORK = parse_status_answer
 
-            time.sleep(RETRY_PERIOD)
-
         except Exception as error:
-            logger.critical(f'Сбой в работе программы: {error}')
-            message = f'Сбой в работе программы: {error}'
-            send_message(bot, message)
-            logger.debug('--------------')
+            logging.critical(f'Сбой в работе программы: {error}')
+            logging.debug('--------------')
+
+        finally:
             time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO,
+        handlers=[logging.FileHandler('homework_log.log'),
+                  logging.StreamHandler()]
+    )
     main()
+
+# Доброго времени суток! Пишу тут, потому что так будет продуктивнее и мы
+# сэкономим время. В предыдущем ревью Вы писали, что при пробрасывании ошибок
+# лучше создавать ошибку из существующей, не совсем понял что Вы имели в виду,
+# может быть то, что когда я пишу собственную ошибку мне лучше пользоваться
+# конструкция from или Вы имели ввиду, что нужно использовать ошибку, которая
+# уже по дефолту есть в питоне (т.е. не создана мной как отдельный класс нас-
+# ледованный от Exceptions). И по поводу переноса строк с помощью знака "\",
+# это по дефолту делает PyCharm, так что извиняюсь
+# P.S. После ревью я всё это обязательно удалю, спасибо за внимание:) Ответьте
+# на первый вопрос, пожалуйста.
