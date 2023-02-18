@@ -1,3 +1,5 @@
+import json.decoder
+
 import requests
 import os
 import telegram
@@ -29,10 +31,7 @@ HOMEWORK_VERDICTS: dict = {
 def check_tokens():
     """Проверка доступности переменных окружения."""
     tokens: tuple = (TELEGRAM_TOKEN, PRACTICUM_TOKEN, TELEGRAM_CHAT_ID)
-    if not all(tokens):
-        logging.critical('Отсутсвуют переменные окружения!')
-        return False
-    return True
+    return all(tokens)
 
 
 def send_message(bot, message):
@@ -53,21 +52,20 @@ def get_api_answer(timestamp):
         response = requests.get(ENDPOINT, headers=HEADERS,
                                 params={'from_date': timestamp})
         response_json = response.json()
+        return response_json
+
+    except json.decoder.JSONDecodeError:
+        logging.error('Ошибка при декодировании ответа API из json в dict.')
+    except ConnectionError:
+        logging.error('Ошибка при подключении к эндпоинту.')
+    finally:
         if response.status_code == HTTPStatus.OK:
             logging.debug('Запрос от API успешно получен.')
             logging.debug(f'Ответ API: {response_json}')
-            return response_json
         else:
             logging.error(f'Неверный ответ API: {response.status_code}.')
             raise ex.InvalidStatusCodeAPI(f'Неверный ответ API:'
                                           f' {response.status_code}')
-    except Exception:
-        pass
-
-    if response.status_code != HTTPStatus.OK:
-        raise ex.InvalidStatusCodeAPI('Endpoint API недоступен.')
-    else:
-        raise ex.InvalidStatusCodeAPI('Сбой при запросе к Endpoint API')
 
 
 def check_response(response):
@@ -99,15 +97,9 @@ def parse_status(homework):
         raise KeyError('Значение одной из переменной в ответе API не найдено.')
 
     if homework['status'] in HOMEWORK_VERDICTS:
-        if "homework_name" in homework:
-            return ('Изменился статус проверки работы'
-                    f' "{homework["homework_name"]}".'
-                    f' {HOMEWORK_VERDICTS[homework["status"]]}')
-        else:
-            logging.error('Переменная <homework_name> отсутствует в ответе'
-                          ' API')
-            raise ex.MissArgument('Переменная <homework_name> отсутствует'
-                                  ' в ответе API')
+        return ('Изменился статус проверки работы'
+                f' "{homework["homework_name"]}".'
+                f' {HOMEWORK_VERDICTS[homework["status"]]}')
     else:
         logging.error('API возвращает незадокументированный аргумент'
                       f' {homework["status"]}.')
@@ -125,6 +117,7 @@ def main():
 
     # Проверяем переменные окружения
     if not check_tokens():
+        logging.critical('Отсутсвуют переменные окружения!')
         raise ex.MissingEnvironmentVariable(
             'Отсутствуют переменные окружения!')
 
@@ -145,6 +138,8 @@ def main():
             # Извлекаем нужную информацию о последней домашке
             if len(api_answer['homeworks']) > 0:
                 parse_status_answer = parse_status(api_answer['homeworks'][0])
+            else:
+                parse_status_answer = 'Обновлений в ДЗ пока нет'
 
             # Отправляем сообщение пользователю
             if STATUS_HOMEWORK != parse_status_answer:
@@ -153,6 +148,10 @@ def main():
 
         except Exception as error:
             logging.critical(f'Сбой в работе программы: {error}')
+            message = f'Сбой в работе программы: {error}'
+            if message != STATUS_HOMEWORK:
+                send_message(bot, message)
+                STATUS_HOMEWORK = message
             logging.debug('--------------')
 
         finally:
@@ -167,14 +166,3 @@ if __name__ == '__main__':
                   logging.StreamHandler()]
     )
     main()
-
-# Доброго времени суток! Пишу тут, потому что так будет продуктивнее и мы
-# сэкономим время. В предыдущем ревью Вы писали, что при пробрасывании ошибок
-# лучше создавать ошибку из существующей, не совсем понял что Вы имели в виду,
-# может быть то, что когда я пишу собственную ошибку мне лучше пользоваться
-# конструкция from или Вы имели ввиду, что нужно использовать ошибку, которая
-# уже по дефолту есть в питоне (т.е. не создана мной как отдельный класс нас-
-# ледованный от Exceptions). И по поводу переноса строк с помощью знака "\",
-# это по дефолту делает PyCharm, так что извиняюсь
-# P.S. После ревью я всё это обязательно удалю, спасибо за внимание:) Ответьте
-# на первый вопрос, пожалуйста.
