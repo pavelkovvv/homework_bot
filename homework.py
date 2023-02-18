@@ -124,7 +124,8 @@ def main():
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
     timestamp = int(time.mktime((dt.datetime.now()
-                                 - dt.timedelta(days=7)).timetuple()))
+                                 - dt.timedelta(days=50)).timetuple()))
+
     while True:
         try:
             logging.debug('Начало новой итерации')
