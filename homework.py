@@ -50,21 +50,21 @@ def get_api_answer(timestamp):
     try:
         response = requests.get(ENDPOINT, headers=HEADERS,
                                 params={'from_date': timestamp})
-        response_json = response.json()
-        return response_json
-
-    except json.decoder.JSONDecodeError:
-        logging.error('Ошибка при декодировании ответа API из json в dict.')
-    except ConnectionError:
+    except Exception as exc:
         logging.error('Ошибка при подключении к эндпоинту.')
-    finally:
-        if response.status_code == HTTPStatus.OK:
-            logging.debug('Запрос от API успешно получен.')
-            logging.debug(f'Ответ API: {response_json}')
-        else:
-            logging.error(f'Неверный ответ API: {response.status_code}.')
-            raise ex.InvalidStatusCodeAPI(f'Неверный ответ API:'
-                                          f' {response.status_code}')
+        raise ConnectionError from exc
+
+    if response.status_code == HTTPStatus.OK:
+        try:
+            response_json = response.json()
+            return response_json
+        except Exception as exc:
+            logging.error('Ошибка при десириализации json.')
+            raise json.decoder.JSONDecodeError from exc
+    else:
+        logging.error(f'Неверный ответ API: {response.status_code}.')
+        raise ex.InvalidStatusCodeAPI(f'Неверный ответ API:'
+                                      f' {response.status_code}')
 
 
 def check_response(response):
