@@ -16,3 +16,7 @@ class APIReturningUnknownArgument(Exception):
 
 class MissArgument(Exception):
     pass
+
+
+class jsonDecodeError(Exception):
+    pass

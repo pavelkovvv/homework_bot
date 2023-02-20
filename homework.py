@@ -1,4 +1,3 @@
-import json
 import requests
 import os
 import telegram
@@ -60,7 +59,7 @@ def get_api_answer(timestamp):
             return response_json
         except Exception as exc:
             logging.error('Ошибка при десириализации json.')
-            raise json.decoder.JSONDecodeError from exc
+            raise ex.jsonDecodeError from exc
     else:
         logging.error(f'Неверный ответ API: {response.status_code}.')
         raise ex.InvalidStatusCodeAPI(f'Неверный ответ API:'
